@@ -1,4 +1,4 @@
-# UNRELEASED
+# [3.4.0] 19/05/2026
 
 ### Plugins
 - New `xml` plugin containing minimal bindings to `xml-light`, see
