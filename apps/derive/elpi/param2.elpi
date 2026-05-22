@@ -35,6 +35,23 @@ param (prod N T P as Prod) Prod1 ProdR :- !, do! [
        {coq.subst-fun [{coq.mk-app f [x]}, {coq.mk-app g [x1]}] (PR x x1 xR)}
 ].
 
+% Primitive projections are applied directly to the record instance,
+% without mentioning the record's parameters. The application node can
+% have more arguments if the record field is a function, in which case
+% the first argument should be treated specially, but then the rest
+% should be processed like a regular application
+param (app [primitive (proj Proj NoArgs), X | Xs]) (app [PP1, X1 | Xs1])
+      (app [PPR, XR | XsR]) :- !, do! [
+  % TODO: for some reason capturing the primitive with "as PP" causes
+  % elpi to not consider this rule anymore, look into this
+  % TODO: it's because param is declared as :index(3), no idea what that means
+  % though
+  PP = primitive (proj Proj NoArgs),
+  param PP PP1 PPR,
+  param X X1 XR,
+  derive.param2.param-args Xs Xs1 XsR,
+].
+
 param (app [A|Bs]) (app [A1|Bs1]) ARBsR :- !, do! [
    param A A1 AR,
    derive.param2.param-args Bs Bs1 BsR,
@@ -81,6 +98,11 @@ namespace derive.param2 {
 func names12R name -> name, name, name.
 names12R N N1 N2 NR :- !,
   coq.name-suffix N 1 N1, coq.name-suffix N 2 N2, coq.name-suffix N "_R" NR.
+
+
+func id12R id -> id, id, id.
+id12R N N1 N2 NR :- !,
+  N1 is N ^ "1", N2 is N ^ "2", NR is N ^ "_R".
 
 func param-args -> list term, list term, list term.
 param-args [] [] [] :- !.
@@ -146,6 +168,234 @@ rename (prod N T P) [none|LN] (prod N T P') :- !,
   pi x\ rename (P x) LN (P' x).
 rename T _ T :- !.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% translation of inductive delcarations %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+func indt-unif->indt-nonunif indt-decl -> indt-decl.
+indt-unif->indt-nonunif Decl NewDecl :-
+  std.spy! (indt-unif->indt-nonunif.aux Decl [] IA _).
+
+func indt-unif->indt-nonunif.aux
+  indt-decl,   % Indutive with uniform parameters
+  list A -> % ???
+  arity,       % Arity of the new indutive
+  B.           %
+indt-unif->indt-nonunif.aux (parameter N Expl Ty RestI) _ (parameter N Expl Ty RestA) _ :- !,
+  @pi-parameter N Ty a\ indt-unif->indt-nonunif.aux (RestI a) _ (RestA a) _.
+indt-unif->indt-nonunif.aux (inductive _ _ IA _) _ IA _ :- !.
+
+func param-arity
+  arity,  % Arity (a : A).. | P a..
+  term,   % Term T1 : forall (a : A).., P a..
+  term -> % Term T2 : forall (a' : A').., P' a'..
+  arity.  % Arity [[ (a : A).. ]] | [[ P a.. ]] (T1 a..) (T2 a'..)
+param-arity A1 Hd1 Hd2 AR :- !, param-arity.aux A1 Hd1 Hd2 [] [] AR.
+
+func param-arity.aux arity, term, term, list term, list term -> arity.
+param-arity.aux (parameter N Impl Ty1 Rest1) Hd1 Hd2 RevParams1 RevParams2
+  (parameter N1 Impl Ty1 x1\
+    parameter N2 Impl Ty2 x2\
+      parameter NR Impl (TyRsubst x1 x2) xR\ RestR x1 x2 xR) :- std.do! [
+  id12R N N1 N2 NR,
+  param Ty1 Ty2 TyR,
+  (pi x x'\ coq.subst-fun [x, x'] TyR (TyRsubst x x')),
+  @pi-parameter N1 Ty x1\ @pi-parameter N2 Ty2 x2\ @pi-parameter NR (TyRsubst x1 x2) xR\
+    param x1 x2 xR =>
+    param-arity.aux (Rest1 x1) Hd1 Hd2 [x1|RevParams1] [x2|RevParams2] (RestR x1 x2 xR)
+  ].
+
+param-arity.aux (arity T1) Hd1 Hd2 RevParams1 RevParams2 (arity TRSubst) :- std.do! [
+  param T1 _ TR,
+  coq.mk-app Hd1 {std.rev RevParams1} Ty1,
+  coq.mk-app Hd2 {std.rev RevParams2} Ty2,
+  coq.subst-fun [Ty1, Ty2] TR TRSubst
+  ].
+
+func param-indt-decl
+  inductive, % Name of the inductive
+  string ->  % Suffix to add to the name
+  string,    % Name of the translated inductive
+  indt-decl. % Description of the translated inductive
+param-indt-decl I Suffix NR DeclR :- !,
+  coq.env.indt-decl I Decl,
+  param-indt-decl.aux I Suffix [] [] Decl NR DeclR.
+
+func param-indt-decl.aux inductive, string,
+  list term, % Reversed list of "unprimed" parameters accumulated so far
+  list term, % Reversed list of "primed" parameters accumulated so far
+  indt-decl -> string, indt-decl.
+param-indt-decl.aux I Suffix RevParams1 RevParams2 (parameter N _Explicitness Ty Rest) NewName (
+  parameter N1 implicit Ty x\
+    parameter N2 implicit Ty' x'\
+      parameter NR explicit (TyRsubst x x') xR\ RestR x x' xR) :- !, std.do! [
+  id12R N N1 N2 NR,
+  param Ty Ty' TyR,
+  (pi x x'\ coq.subst-fun [x,x'] TyR (TyRsubst x x')),
+  @pi-parameter N1 Ty x\ @pi-parameter N2 Ty' x'\ @pi-parameter NR TyR xR\
+    param x x' xR =>
+    param-indt-decl.aux I Suffix [x|RevParams1] [x'|RevParams2] (Rest x) NewName (RestR x x' xR)
+  ].
+
+% :index(1 1 1)
+% func map3 list A, list B, list C, (func A, B, C -> D) -> list D.
+% map3 [] [] _ [].
+% map3 [X|XS] [Y|YS] [Z|ZS] F [U|US] :- F X Y Z U, map2 XS YS ZS F US.
+% map2 [] [_|_] _ _ _ :- fatal-error "map2 on lists of different length".
+% map2 [_|_] [] _ _ _ :- fatal-error "map2 on lists of different length".
+
+param-indt-decl.aux I Suffix RevParams1 RevParams2 (inductive N Ind IndexA Ks) NR
+    (inductive NR Ind IndexAR KRs) :- !, std.do! [
+  coq.env.global (indt I) HdTy,
+  std.rev RevParams1 Params1,
+  std.rev RevParams2 Params2,
+  coq.mk-app HdTy Params1 Hd1,
+  coq.debug HdTy Hd1,
+  % coq.mk-app HdTy Params2 Hd2,
+  std.spy! (param-arity IndexA {coq.mk-app HdTy Params1} {coq.mk-app HdTy Params2} IndexAR),
+  coq.ensure-fresh-global-id {calc (N ^ Suffix)} NR,
+  coq.env.indt I _ _ _ _ Cs _,
+  pi tyR\
+    param HdTy HdTy tyR ==>
+    % Issue: consider the humble Inductive Foo (A : Type) := foo : Foo A -> Foo A.
+    % The arity of foo we get is (f\ "f -> f"), which we can choose to instantiate
+    % either with HdTy, meaning "Foo", or Hd1 and Hd2, meaning "Foo A" and "Foo A'".
+    % If we do the translation for HdTy, we try to translate (foo : Foo -> Foo),
+    % which is
+    % (foo_R : ∀ (f : Foo) (f' : Foo), Foo_R f f' -> Foo_R (foo f) (foo f'))
+    % and that's ill-typed, because Foo takes a type parameter, so it should be
+    % (foo_R : ∀ (f : Foo A) (f' : Foo A'), ...).
+    % On the other hand, if we do the translation for Hd1 and Hd2 and we translate
+    % (foo : Foo A -> Foo A), we get
+    % (foo_R : ∀ (f : Foo A) (f' : Foo A'),
+    %          Foo_R A A' A_R f f' -> Foo_R A A' A_R (foo f) (foo' f')).
+    % Unfortunately, this is rejected as well; what Rocq/elpi expect is something
+    % in the middle, namely
+    % (foo_R : ∀ (f : Foo A) (f' : Foo A'),
+    %          Foo_R f f' -> Foo_R (foo f) (foo' f'))
+    %
+    std.spy! (map2 Cs (Ks HdTy) (param-indc-decl Suffix Params1 Params2) (KRs tyR))
+  ].
+
+func param-indc-decl
+  id,          % Suffix to add to the name
+  list term,   % "Unprimed" parameter instantiation of the inductive
+  list term,   % "Primed" parameter instantiation of the inductive
+  constructor, % Name of the constructor being translated
+  indc-decl -> % Declaration of the constructor being translated
+  indc-decl.   % Translated constructor
+param-indc-decl Suffix Params1 Params2 CHd C CR :- !, std.do! [
+  coq.env.global (indc CHd) CT,
+  param-indc-decl.aux Suffix {coq.mk-app CT Params1} {coq.mk-app CT Params2} C CR
+  ].
+
+func param-indc-decl.aux id, term, term, indc-decl -> indc-decl.
+param-indc-decl.aux Suffix HdC1 HdC2 (constructor N A) (constructor NR AR) :- !, std.do! [
+  coq.ensure-fresh-global-id {calc (N ^ Suffix)} NR,
+  std.spy (param-arity A HdC1 HdC2 AR)
+  ].
+
+param-indt-decl.aux I Suffix RevParams1 RevParams2 (record Name Ty Kname Fields) FNameR
+    (parameter C1 explicit Ty1 x \
+      parameter C2 explicit Ty2 x'\ (record FNameR Ty FKnameR (FieldsR x x'))) :- !, std.do! [
+  coq.env.global (indt I) HdTy,
+  id12R Name C1 C2 _,
+  coq.ensure-fresh-global-id {calc (Name ^ Suffix)} FNameR,
+  coq.ensure-fresh-global-id {calc (Kname ^ Suffix)} FKnameR,
+  coq.mk-app HdTy {std.rev RevParams1} Ty1,
+  coq.mk-app HdTy {std.rev RevParams2} Ty2,
+  coq.env.projections I Projs,
+  @pi-parameter C1 Ty1 x\ @pi-parameter C2 Ty2 x'\
+      param-record-decl Fields Suffix Projs RevParams1 RevParams2 x x' (FieldsR x x')
+].
+
+func param-record-decl record-decl, string, list (option constant),
+  list term, list term, term, term -> record-decl.
+param-record-decl end-record _ _ _ _ _ _ end-record :- !.
+param-record-decl (field Attrs Id Ty Rest) Suffix [some Proj|Projs]
+  RevParams1 RevParams2 X X' (field Attrs IdR TyRsubst RestR) :- !,
+  IdR is (Id ^ Suffix),
+  param Ty _Ty' TyR,
+  coq.mk-app {coq.env.global (const Proj)} {std.rev [X|RevParams1]} Proj1,
+  coq.mk-app {coq.env.global (const Proj)} {std.rev [X'|RevParams2]} Proj2,
+  coq.subst-fun [Proj1, Proj2] TyR TyRsubst,
+  @pi-parameter IdR TyRsubst fld\
+    param Proj1 Proj2 fld =!=>
+    param-record-decl (Rest Proj1) Suffix Projs RevParams1 RevParams2 X X' (RestR fld).
+
+func param-record-constr
+  constructor,   % Original constructor
+  int,           % Number of parameters
+  term,          % Type of the original constructor
+  constructor -> % Constructor of the translation
+  term,          % Body of the new compatibility constant
+  term.          % And its type
+param-record-constr C NParams Ty CR Bo TyR :- !, do![
+  coq.env.global (indc C) GR,
+  coq.env.global (indc CR) GRR,
+  param Ty _ TyRUnsubst,
+  coq.subst-fun [GR, GR] TyRUnsubst TyR,
+  % Eta-expand the parameters of the constructor first;
+  % This allows us to treat (constr A0 ... AN) as a single unit to be
+  % translated. It needs special treatment, because the following
+  % arguments correspond to the record fields, which need to be
+  % collected separately and wrapped in a constr call when forwarding
+  % to constrR
+  coq.mk-eta NParams Ty GR Exp,
+  % Register the translation of (constr A0 ... AN) to be a function of
+  % fld -> fld' -> fldR ... 's wrapping the call
+  % (constr' A0 A0' A0R ... ANR) (constr fld ...) (constr fld' ...) fldR ...
+  (
+    [(pi xs C x1s C1 OutR xRs Tele AppdC\
+      param (app [GR | xs]) (app [GR | x1s]) OutR :- !, std.do![
+        param-args xs x1s xRs,
+        % Substitute parameters to the constructor type, leaving just
+        % the arguments corresponding to fields
+        coq.subst-prod xs Ty Tele,
+        % Pre-apply the translation of parameters
+        coq.mk-app GRR xRs AppdC,
+        param-record-constr.aux Tele AppdC (app [GR | xs]) (app [GR | x1s]) [] OutR
+    ]),
+    % If the record didn't have any parameters, then there was no eta
+    % expansion, and the constructors are just constr instead of (constr)
+    (pi OutR\
+      param GR GR OutR :- !, param-record-constr.aux Ty GRR GR GR [] OutR)] =>
+    % Apply the above translation, together with the usual mechanism
+    % for translating functions when translating parameters
+    param Exp _ Bo),
+  std.assert-ok! (coq.typecheck Bo TyR)
+    "param-record-constr: Ill-typed translated constructor shim",
+].
+
+func mapout2 list A, (func A -> B, C) -> list B, list C.
+mapout2 [] _ [] [].
+mapout2 [X | XS] F [Y | YS] [Z | ZS] :- F X Y Z, mapout2 XS F YS ZS.
+
+func param-record-constr.aux
+  term,     % Rest of the constructor telescope
+  term,     % Head of the final application
+  term,     % Untranslated constructor
+  term,     % Untranslated constructor'
+  list term % Reverse arguments to first constructor call
+  -> term.  % Call to the translated constructor
+param-record-constr.aux (prod N T1 B) H C C1 RevArgs
+  (fun N1 T1 a1\ fun N2 T2 a2\ fun NR (TRsubst a1 a2) aR\ E a1 a2 aR):- !, do![
+  names12R N N1 N2 NR,
+  param T1 T2 TR,
+  (pi a1 a2\ coq.subst-fun [a1, a2] TR (TRsubst a1 a2)),
+  (@pi-decl N1 T1 a1\ @pi-decl N2 T2 a2\ @pi-decl NR (TRsubst a1 a2) aR\
+    param a1 a2 aR =>
+    param-record-constr.aux (B a1) H C C1 [a1 | RevArgs] (E a1 a2 aR))
+].
+param-record-constr.aux _ H C C1 RevArgs Call :- !, do![
+  rev RevArgs Args,
+  mapout2 Args param Args1 ArgsR,
+  coq.mk-app C Args CCall,
+  coq.mk-app C1 Args1 CCall1,
+  coq.mk-app H [CCall, CCall1 | ArgsR] Call
+].
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Class storage functions: %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -176,7 +426,10 @@ func dispatch gref, string -> list prop.
 dispatch ((const GR) as C) Suffix Clauses :- do! [
   coq.env.global C Term,
   NameR is {coq.gref->id C} ^ Suffix,
-  coq.env.const GR (some X) Ty,
+  coq.env.const GR OBo Ty,
+  (OBo = (some X) ;
+   std.fatal-error-w-data "Cannot translate local constant without body" GR),
+
   param Ty _ TyR,
   coq.mk-app TyR [Term, Term] TyRTermTerm,
   % coq.typecheck is needed to add universe constraints
@@ -197,9 +450,102 @@ dispatch ((const GR) as C) Suffix Clauses :- do! [
   Clauses = [param-done C, C1]
 ].
 
-dispatch (indt I as GR) Suffix Clauses :- do! [
+func maybe_enable bool, prop, (func).
+maybe_enable tt P R :- !, P =!=> R.
+maybe_enable _ _ R :- R.
+
+dispatch (indt I as GR) Suffix Clauses :-
+  coq.env.record? I PrimProj, !, do! [
+  param-indt-decl I Suffix NameR RecordDeclR,
+  std.assert-ok! (coq.typecheck-indt-decl RecordDeclR) "derive.param2 generates illtyped record declaration",
+
+  maybe_enable PrimProj @primitive! (coq.env.add-indt RecordDeclR IR),
+  GRR = indt IR,
   coq.env.global GR Ind,
+  coq.env.global GRR IndR,
+  store-param NameR Ind Ind IndR,
+
+  TypeClause = (param.gref GR GR GRR :- !),
+  TypeClauseR = (paramR Ind Ind IndR :- !),
+
+  % TODO: how do we incorporate field erasure?
+  coq.env.projections I OProjs,
+  std.map-filter OProjs (p\ r\ (some r) = p) Projs,
+  coq.env.projections IR OProjsR,
+  std.map-filter OProjsR (p\ r\ (some r) = p) ProjsR,
+
+  if (PrimProj = tt) (
+    coq.env.primitive-projections I OPProjs,
+    coq.env.primitive-projections IR OPProjsR,
+    std.map-filter OPProjs
+      (p\ r\ sigma pproj args\
+        (some (pr pproj args)) = p,
+        r = proj pproj args)
+      PProjs,
+    std.map-filter OPProjsR
+      (p\ r\ sigma pproj args\
+        (some (pr pproj args)) = p,
+        r = proj pproj args)
+      PProjsR
+  ) (
+    PProjs = [],
+    PProjsR = []
+  ),
+
+  % store projection translations as witnesses
+  forall2 Projs ProjsR
+    (p\ pR\
+      sigma n fulln gp gpR \
+      coq.gref->id (const p) n,
+      fulln is (n ^ Suffix),
+      coq.env.global (const p) gp,
+      coq.env.global (const pR) gpR,
+      store-param fulln gp gp gpR),
+
+  % projection translation clauses
+  map2 Projs ProjsR
+    (p\ pR\ r\ r = (param.gref (const p) (const p) (const pR) :- !))
+    ProjectionClauses,
+  map2 PProjs PProjsR
+    (p\ pR\ r\ r = (param (primitive p) (primitive p) (primitive pR) :- !))
+    PProjectionClauses,
+
+  MostClauses =
+    [TypeClause, TypeClauseR |
+      {std.append PProjectionClauses ProjectionClauses}],
+
+  coq.env.indt I _ NParams _ _ [C] [CTy],
+  coq.env.indt IR _ _ _ _ [CR] _,
+
+  % Generating the constructor shim needs to know about registered
+  % translations
+  (MostClauses =!=> param-record-constr C NParams CTy CR ShimCR ShimCRTy),
+
+  coq.env.add-const
+    {calc ("shim_" ^ {coq.gref->id (indc CR)})}
+    ShimCR ShimCRTy
+    @transparent!
+    Shim,
+
+  store-param {coq.gref->id (indc CR)}
+    {coq.env.global (indc C)} {coq.env.global (indc C)} {coq.env.global (const Shim)},
+
+  ConstrClause = (param.gref (indc C) (indc C) (const Shim) :- !),
+
+  Clauses = [param-done GR, ConstrClause | MostClauses],
+
+  forall Clauses (c\
+    coq.elpi.accumulate _ "derive.param2.db" (clause _ (before "param:fail") c)),
+].
+
+% TODO: Remove this once we get a more reasonable representation of
+% uniform parameters
+dispatch (indt I as GR) Suffix Clauses :-
   coq.env.indt I IsInd Lno Luno Ty Knames Ktypes,
+  Luno > 0, !,
+  coq.warn "Falling back to legacy inductive generation",
+  do! [
+  coq.env.global GR Ind,
   NameR is {coq.gref->id GR} ^ Suffix,
   coq.ensure-fresh-global-id NameR FNameR,
   map Knames (rename-indc Suffix) KnamesR,
@@ -230,6 +576,31 @@ dispatch (indt I as GR) Suffix Clauses :- do! [
 
  Clauses = [param-done GR,C1|CK]
  ].
+
+dispatch (indt I as GR) Suffix Clauses :- do! [
+  std.spy! (param-indt-decl I Suffix NameR DeclR),
+
+  std.assert-ok! (coq.typecheck-indt-decl DeclR) "derive.param2 generates illtyped term",
+
+  coq.env.add-indt DeclR IR,
+
+  coq.env.global GR Ind,
+  store-param NameR Ind Ind {coq.env.global (indt IR)},
+
+  coq.env.indt I _ _ _ _ Knames _,
+  coq.env.indt IR _ _ _ _ KnamesR _,
+
+  forall2 Knames KnamesR (store-param-indc Suffix),
+
+  C1 = (param.gref GR GR (indt IR) :- !),
+  coq.elpi.accumulate _ "derive.param2.db" (clause _ (before "param:fail") C1),
+  map2 Knames KnamesR (a\ b\ r\ r = (param.gref (indc a) (indc a) (indc b) :- !)) CK,
+  forall CK (c\
+    coq.elpi.accumulate _ "derive.param2.db" (clause _ (before "param:fail") c)),
+  coq.elpi.accumulate _ "derive.param2.db" (clause _ _ (param-done GR)),
+
+  Clauses = [param-done GR,C1|CK]
+  ].
 
 dispatch (indc _) _ _ :-
   coq.error "derive.param2: cannot translate a constructor".

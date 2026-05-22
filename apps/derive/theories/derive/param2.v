@@ -16,8 +16,8 @@ Class param {X : Type} {XR : X -> X -> Type} (x : X) (xR : XR x x) := Param {}.
 
 Register store_param as param2.store_param.
 
-(* Links a term (constant, inductive type, inductive constructor) with
-   its parametricity translation *)
+(* Links a term (constant, inductive type, inductive constructor, record type,
+   projection) with its parametricity translation *)
 Elpi Db derive.param2.db lp:{{
     :index(3)
     % param (t : T) is a function that returns t' and tr such that tr : [| T |] t t'
@@ -33,6 +33,7 @@ Elpi Db derive.param2.db lp:{{
 }}.
 #[superglobal] Elpi Accumulate derive.param2.db lp:{{
 
+    % TODO: Remove when legacy inductive translation is removed
     % helper to lift undeclared grefs to terms.
     func global-gref gref, gref -> term.
     global-gref (const _) GRR TR :- !,
@@ -83,6 +84,50 @@ Elpi Accumulate lp:{{
 
   usage :- coq.error "Usage: derive.param2 <object name>".
 }}.
+
+Inductive nat_R : nat -> nat -> Type :=
+| O_R : nat_R O O
+| S_R : forall n m, nat_R n m -> nat_R (S n) (S m).
+
+Elpi Query lp:{ (indt N) = {{:gref nat}}, coq.env.indt-decl N I, (indt NR) = {{:gref nat_R}}, coq.env.indt-decl NR IR }. (* !!! *)
+
+Set Universe Polymorphism.
+Inductive eqT [A] (x : A) : A -> Type :=
+| refl : eqT x.
+Check refl.
+
+Inductive eqT_R | (A A' : Type) (A_R : A -> A' -> Type) x x' (x_R : A_R x x') : forall y y' (y_R : A_R y y'), eqT x y -> eqT x' y' -> Type :=
+| refl_R : eqT_R A A' A_R x x' x_R x x' x_R (refl x) (refl x').
+Check refl_R.
+
+Elpi derive.param2 eqT.
+Elpi derive.param2 list.
+
+Elpi Query lp:{ (indt N) = {{:gref eqT}}, coq.env.indt-decl N I , (indt NR) = {{:gref eqT_R}}, coq.env.indt-decl NR IR }. (* !!! *)
+
+(* Elpi derive.param2 nat. *)
+Definition fa := 0.
+Definition fb := fa.
+
+Inductive Foo | (A : Type) := foo : Foo nat -> Foo A -> Foo A.
+Elpi Query lp:{ (indt N) = {{:gref Foo}}, coq.env.indt-decl N Decl_ }.
+(* Inductive FooR (A A' : Type) (A_R : A -> A' -> Type) : Foo A -> Foo A' -> Type := *)
+(* | foo_R :  *)
+Check foo.
+Elpi derive.param2 nat.
+
+Elpi derive.param2 Foo.
+Print Foo_R.
+
+Set Primitive Projections.
+Record Wrap (A : Type) : Type := mkWrap {
+    wrap : A
+  }.
+About Wrap.
+
+Elpi Trace Browser.
+Elpi derive.param2 Wrap.
+About Wrap_R.
 
 Elpi Command derive.param2.register.
 Elpi Accumulate File paramX.
