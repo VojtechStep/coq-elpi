@@ -8,16 +8,17 @@ module EP = API.Parse
 
 open Rocq_elpi_utils
 type program_name = Loc.t * qualified_name
-type cunit = Full of Names.KerName.t * EC.compilation_unit | Signature of EC.compilation_unit_signature
-let name_of_cunit = function Full(_,u) -> EC.compilation_unit_name u | Signature s -> EC.compilation_unit_signature_name s
+type cunit = Full of Names.KerName.t * EC.compilation_unit | Signature of Names.KerName.t * EC.compilation_unit_signature
+let name_of_cunit = function Full(_,u) -> EC.compilation_unit_name u | Signature(_,s) -> EC.compilation_unit_signature_name s
+let kn_of_cunit = function Full(kn,_) -> kn | Signature(kn,_) -> kn
 type what = Code | SignatureOnly
 let pp_cunit fmt = function
   | Full (kn,u) -> Format.fprintf fmt "Full(%s,%s)" Names.KerName.(debug_to_string kn) (EC.compilation_unit_name u)
-  | Signature s -> Format.fprintf fmt "Signature %s" (EC.compilation_unit_signature_name s)
+  | Signature (kn,s) -> Format.fprintf fmt "Signature(%s,%s)" Names.KerName.(debug_to_string kn) (EC.compilation_unit_signature_name s)
 let eq_cunit x y =
   match x,y with
   | Full(k1,_), Full(k2,_) -> Names.KerName.equal k1 k2
-  | Signature s1, Signature s2 -> EC.compilation_unit_signature_name s1 = EC.compilation_unit_signature_name s2 && EC.compilation_unit_signature_digest s1 = EC.compilation_unit_signature_digest s2
+  | Signature (k1,_), Signature (k2,_) -> Names.KerName.equal k1 k2
   | _ -> false
 
 [%%if coq = "9.0"]
@@ -49,11 +50,11 @@ and src_db_header = {
 let alpha = 65599
 let combine_hash h1 h2 = h1 * alpha + h2
 
-let hash_cunit = function | Full (kn,_) -> Names.KerName.hash kn | Signature s -> Hashtbl.hash s (* TODO *)
+let hash_cunit = function | Full (kn,_) -> Names.KerName.hash kn | Signature (kn,_) -> Names.KerName.hash kn
 let compare_cunit a b =
   match a,b with
   | Full(kn1,_), Full(kn2,_) -> Names.KerName.compare kn1 kn2
-  | Signature s1, Signature s2 -> if Hashtbl.hash s1 == Hashtbl.hash s2 then 0 else -1 (* BUG *)
+  | Signature(kn1,_), Signature(kn2,_) -> Names.KerName.compare kn1 kn2
   | Full _, Signature _ -> -1
   | Signature _, Full _ -> +1
 
@@ -402,13 +403,13 @@ let unit_from_ast ?error_header ~elpi ~flags ~base ~loc ast =
 
 let unit_signature_from_ast ~elpi ~flags ~base ~loc ast =
   try 
-    let _kn, u = source_cache_lookup (cc_flags ()) (EC.scoped_program_digest ast) in
-    Signature (EC.signature u)
+    let kn, u = source_cache_lookup (cc_flags ()) (EC.scoped_program_digest ast) in
+    Signature (kn,EC.signature u)
   with Not_found ->
   handle_elpi_compiler_errors ~loc (fun () ->
     let u = EC.unit ~elpi ~flags ~base ast in
-    let _kn, u = intern u flags in
-    Signature (EC.signature u))
+    let kn, u = intern u flags in
+    Signature (kn,EC.signature u))
         
 let unit_from_plugin ?error_header ~elpi ~base ~loc builtins ~flags : cunit =
   handle_elpi_compiler_errors ~loc (fun () ->
@@ -420,7 +421,7 @@ let assemble_unit ~loc base u =
   handle_elpi_compiler_errors ~loc (fun () ->
     match u with
     | Full(_, u) -> EC.extend ~base ~flags:(cc_flags ()) u
-    | Signature s -> EC.extend_signature ~base ~flags:(cc_flags ()) s)
+    | Signature (_, s) -> EC.extend_signature ~base ~flags:(cc_flags ()) s)
     
 let assemble_units ~base ~loc units =
   List.fold_left (assemble_unit ~loc) base units
@@ -545,13 +546,17 @@ let get ?(fail_if_not_exists=false) p =
   let db_code n : Chunk.t option =
     SLMap.find_opt n !db_name_src |> Option.map (fun ({ sources_rev } : db) -> sources_rev)
 
-  let append_to_db name kname c =
+  let append_to_db name c =
     try
-      let (db : db) = SLMap.find name !db_name_src in
-      if Names.KNset.mem kname db.units then db
-      else { sources_rev = Chunk.snoc c db.sources_rev; units = Names.KNset.add kname db.units }
+      let (db : db) = SLMap.find name !db_name_src  in
+      let c = List.filter (fun u -> not (Names.KNset.mem (kn_of_cunit u) db.units)) c in
+      if c = [] then db
+      else 
+        { sources_rev = Chunk.snoc c db.sources_rev;
+          units = List.fold_left (fun s u -> Names.KNset.add (kn_of_cunit u) s) db.units c }
     with Not_found ->
-      { sources_rev = Chunk.Base { hash = hash_list hash_cunit 0 c; base = List.rev c }; units = Names.KNset.singleton kname }
+      { sources_rev = Chunk.Base { hash = hash_list hash_cunit 0 c; base = List.rev c };
+        units = List.fold_left (fun s u -> Names.KNset.add (kn_of_cunit u) s) Names.KNset.empty c }
         
   let is_inside_current_library kn =
     Names.DirPath.equal
@@ -561,7 +566,7 @@ let get ?(fail_if_not_exists=false) p =
   let in_db : Names.Id.t -> snippet -> Libobject.obj =
     let open Libobject in
     let cache ((_,kn),{ program = name; code = p; _ }) =
-      db_name_src := SLMap.add name (append_to_db name kn p) !db_name_src in
+      db_name_src := SLMap.add name (append_to_db name p) !db_name_src in
     let load i ((_,kn),s as o) =
       if Int.equal i 1 ||
         (s.scope = Rocq_elpi_utils.Global && is_inside_current_library kn) ||
@@ -646,7 +651,7 @@ let get ?(fail_if_not_exists=false) p =
 
   let command_base_signature ~loc =
     command_init () |> List.map (function
-    | File { fast = Full(_,u) } -> Signature (EC.signature u) 
+    | File { fast = Full(kn,u) } -> Signature (kn,EC.signature u) 
     | _ -> assert false)
 
   let init_db qualid ~loc (sloc,s) =
