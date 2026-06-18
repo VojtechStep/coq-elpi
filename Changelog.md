@@ -1,3 +1,7 @@
+# [UNRELESED]
+- New `coq.elpi.add-predicate?` to check if a predicate is declared in elpi
+
+
 # [3.4.0] 19/05/2026
 
 ### Plugins
