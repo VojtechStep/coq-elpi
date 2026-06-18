@@ -1,3 +1,7 @@
+# [UNRELEASED]
+
+- fix and test API `coq.CS.canonical-projection?`
+
 # [3.4.0] 19/05/2026
 
 ### Plugins
