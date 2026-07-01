@@ -1,10 +1,16 @@
-# [UNRELEASED]
+
+# [3.5.0] 01/07/2026
 
 ### API:
 - fix `coq.CS.canonical-projection?`, used to disregard `#[canonical=no]`
 - fix `ltac_tactic:(t)`, use to ignore ltac variables in `t`
 - New `coq.elpi.add-predicate?` to check if a predicate is declared in elpi
 
+### APPS:
+- Fix many bugs in `derive` related to universe polymorphism
+
+### Vernac:
+- Fix double accumulation bug when mixing Files and Dbs
 
 # [3.4.0] 19/05/2026
 
