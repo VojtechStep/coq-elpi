@@ -129,3 +129,13 @@ Unset Universe Polymorphism.
 Inductive RenamedParam (n : nat) := renamedParam (_ : unit).
 Arguments renamedParam m t : rename.
 Elpi derive.param2 RenamedParam.
+
+Record Box (A : Type) :=
+  mkBox {
+      unbox : A
+    }.
+Elpi derive.param2 Box.
+Elpi derive.param2 unbox.
+
+Definition box := mkBox.
+Elpi derive.param2 box.
