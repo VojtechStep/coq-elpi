@@ -1,5 +1,5 @@
 
-# [3.5.0] 01/07/2026
+# [3.5.0] 21/07/2026
 
 ### API:
 - fix `coq.CS.canonical-projection?`, used to disregard `#[canonical=no]`
@@ -8,6 +8,7 @@
 
 ### APPS:
 - Fix many bugs in `derive` related to universe polymorphism
+- Fix binary parametricity translation for primitive records
 
 ### Vernac:
 - Fix double accumulation bug when mixing Files and Dbs
