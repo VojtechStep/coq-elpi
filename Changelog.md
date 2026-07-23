@@ -1,6 +1,8 @@
 
 # [3.5.0] 21/07/2026
 
+Requires Elpi 3.7.1 and Rocq 9.0, 9.1, 9.2 and 9.3.
+
 ### API:
 - fix `coq.CS.canonical-projection?`, used to disregard `#[canonical=no]`
 - fix `ltac_tactic:(t)`, use to ignore ltac variables in `t`
