@@ -197,12 +197,11 @@ let group_clauses l =
 
 (**********************************************************************)
 
-
 module type Programs = sig
 
   open Elpi.API
 
-  val debug_vars : Compile.StrSet.t ref
+  val set_debug_vars : Compile.StrSet.t -> unit
   val cc_flags : unit -> Compile.flags
   val unit_from_ast    : ?error_header:string -> elpi:Setup.elpi -> base:Compile.program -> loc:Loc.t -> Compile.scoped_program -> cunit
   val parse_goal       : elpi:Setup.elpi -> loc:Loc.t -> Ast.Loc.t -> string -> Ast.query
@@ -277,16 +276,30 @@ module SourcesStorage(S : Stage) = struct
     }
   end
 
+  [%%if coq = "9.0" || coq = "9.1" || coq = "9.2" ||coq = "9.3"]
   module Summary = struct
     include Summary
-    let ref ?local ~name x = Summary.ref ~stage ?local ~name:(in_stage name) x
+    type 'a ref = 'a Stdlib.ref
+    let ref ~name x = Summary.ref ~stage ~name:(in_stage name) x
+    let local_ref ~name x = Summary.ref ~local:true ~stage ~name:(in_stage name) x
   end
+  [%%else]
+  module Summary = struct
+    include Summary
+    type 'a ref = 'a Summary.Ref.t
+    let ref ~name x = Summary.ref ~stage ~name:(in_stage name) x
+    let local_ref ~name x = Summary.local_ref ~stage ~name:(in_stage name) x
+    let (!) = Summary.Ref.get
+    let (:=) = Summary.Ref.set
+  end
+  [%%endif]
 
-  let program_name : nature SLMap.t ref =
+  let program_name : nature SLMap.t Summary.ref =
     Summary.ref ~name:("elpi-programs") SLMap.empty
-  let program_exists name = SLMap.mem name !program_name
+  let program_exists name = Summary.(SLMap.mem name !program_name)
   
   let get_nature p =
+    let open Summary in
     try SLMap.find p !program_name
     with Not_found ->
       CErrors.user_err
@@ -294,6 +307,7 @@ module SourcesStorage(S : Stage) = struct
 
   let in_program_name : qualified_name * nature -> Libobject.obj =
     let open Libobject in
+    let open Summary in
     declare_object @@ (superglobal_object_nodischarge "elpi-programs-names"
     ~cache:(fun (name,nature) ->
       program_name := SLMap.add name nature !program_name)
@@ -302,13 +316,14 @@ module SourcesStorage(S : Stage) = struct
   let declare_program name nature =
     let obj = in_program_name (name,nature) in
     Lib.add_leaf obj
-        
-  let db_name : SLSet.t ref = Summary.ref  ~name:("elpi-dbs") SLSet.empty
-  let file_name : SLSet.t ref = Summary.ref  ~name:("elpi-files") SLSet.empty
-  let db_exists name = SLSet.mem name !db_name
-  let file_exists name = SLSet.mem name !file_name
-  
+
+  let db_name : SLSet.t Summary.ref = Summary.ref  ~name:("elpi-dbs") SLSet.empty
+  let file_name : SLSet.t Summary.ref = Summary.ref  ~name:("elpi-files") SLSet.empty
+  let db_exists name = SLSet.mem name Summary.(!db_name)
+  let file_exists name = SLSet.mem name Summary.(!file_name)
+
   let in_db_name : qualified_name -> Libobject.obj =
+    let open Summary in
     let open Libobject in
     declare_object @@
       (superglobal_object_nodischarge "elpi-db-names"
@@ -316,6 +331,7 @@ module SourcesStorage(S : Stage) = struct
           ~subst:(Some (fun _ -> CErrors.user_err Pp.(str"elpi: No functors yet"))))
 
   let in_file_name : qualified_name -> Libobject.obj =
+    let open Summary in
     let open Libobject in
     declare_object @@
       (superglobal_object_nodischarge "elpi-file-names"
@@ -349,11 +365,13 @@ module SourcesStorage(S : Stage) = struct
 
 let debug_vars = Summary.ref ~name:"elpi-debug" EC.StrSet.empty
 
-let cc_flags () =
-  { EC.default_flags with EC.defined_variables = !debug_vars }
+let set_debug_vars v = Summary.(debug_vars := v)
 
-let source_cache1 = Summary.ref ~local:true ~name:"elpi-units1" Names.KNmap.empty
-let source_cache2 = Summary.ref ~local:true ~name:"elpi-units2" CString.Map.empty
+let cc_flags () =
+  { EC.default_flags with EC.defined_variables = Summary.(!debug_vars) }
+
+let source_cache1 = Summary.local_ref ~name:"elpi-units1" Names.KNmap.empty
+let source_cache2 = Summary.local_ref ~name:"elpi-units2" CString.Map.empty
 
 let source_cache_lookup flags hash =
   let kn = CString.Map.find hash !source_cache2 in
@@ -460,13 +478,13 @@ let parse_goal ~elpi ~loc tloc text =
   handle_elpi_compiler_errors ~loc (fun () ->
     EP.goal ~elpi ~loc:tloc ~text)
 
-let program_src : program SLMap.t ref =
+let program_src : program SLMap.t Summary.ref =
   Summary.ref ~name:("elpi-programs-src") SLMap.empty
 
-let db_name_src : db SLMap.t ref =
+let db_name_src : db SLMap.t Summary.ref =
   Summary.ref ~name:("elpi-db-src") SLMap.empty
 
-let file_name_src : API.Compile.scoped_program list SLMap.t ref =
+let file_name_src : API.Compile.scoped_program list SLMap.t Summary.ref =
   Summary.ref ~name:("elpi-file-src") SLMap.empty
 
   (* Setup called *)
@@ -485,7 +503,7 @@ let get ?(fail_if_not_exists=false) p =
   let _elpi = ensure_initialized () in
   let nature = get_nature p in
   try
-  let { sources_rev; files; units; dbs; empty } = SLMap.find p !program_src in
+  let { sources_rev; files; units; dbs; empty } = SLMap.find p Summary.(!program_src) in
   files, units, dbs, Some nature, Some sources_rev, empty
   with Not_found ->
   if fail_if_not_exists then
@@ -515,6 +533,7 @@ let get ?(fail_if_not_exists=false) p =
   
   let in_program : qualified_name * src * from -> Libobject.obj =
     let open Libobject in
+    let open Summary in
     declare_object @@ superglobal_object_nodischarge "ELPI"
     ~cache:(fun (name,src_ast,from) ->
       program_src :=
@@ -537,16 +556,18 @@ let get ?(fail_if_not_exists=false) p =
     if empty && not even_if_empty then None else
     sources |> Option.map (fun sources -> sources |> Code.map (fun name ->
     try
-      let { sources_rev } : db = SLMap.find name !db_name_src in
+      let { sources_rev } : db = SLMap.find name Summary.(!db_name_src) in
       sources_rev
     with
       Not_found ->
         CErrors.user_err Pp.(str "Unknown Db " ++ str (show_qualified_name name))))
     
   let db_code n : Chunk.t option =
+    let open Summary in
     SLMap.find_opt n !db_name_src |> Option.map (fun ({ sources_rev } : db) -> sources_rev)
 
   let append_to_db name c =
+    let open Summary in
     try
       let (db : db) = SLMap.find name !db_name_src  in
       let c = List.filter (fun u -> not (Names.KNset.mem (kn_of_cunit u) db.units)) c in
@@ -565,6 +586,7 @@ let get ?(fail_if_not_exists=false) p =
 
   let in_db : Names.Id.t -> snippet -> Libobject.obj =
     let open Libobject in
+    let open Summary in
     let cache ((_,kn),{ program = name; code = p; _ }) =
       db_name_src := SLMap.add name (append_to_db name p) !db_name_src in
     let load i ((_,kn),s as o) =
@@ -589,6 +611,7 @@ let get ?(fail_if_not_exists=false) p =
   
     let in_file : Names.Id.t -> (program_name * API.Compile.scoped_program list) -> Libobject.obj =
       let open Libobject in
+      let open Summary in
       let cache ((_,kn),((_,name),p)) =
         file_name_src := SLMap.add name p !file_name_src in
       let load i ((_,kn),_ as o) = cache o in
@@ -625,26 +648,30 @@ let get ?(fail_if_not_exists=false) p =
 
   type db_header = cunit list
   let header_of_db qulid : db_header =
+    let open Summary in
     (Chunk.base @@ (SLMap.find qulid !db_name_src).sources_rev) 
 
-  let ast_of_elpifile qulid = SLMap.find qulid !file_name_src
+  let ast_of_elpifile qulid = SLMap.find qulid Summary.(!file_name_src)
 
 
   (* templates *)
   let lp_command_base = Summary.ref ~name:("elpi-lp-command") None
   let in_lp_command_src : src list -> Libobject.obj =
     let open Libobject in
+    let open Summary in
     declare_object { (default_object "ELPI-LP-COMMAND") with
       load_function = (fun _ x -> lp_command_base := Some x);
       classify_function = (fun _ -> Keep);
     }
   let load_command ~loc s =
+    let open Summary in
     let elpi = ensure_initialized () in
     let units = private__units_from_file ~elpi ~loc ~base:EC.(empty_base ~elpi) s in
     let base = List.map (fun u -> File { fname = name_of_cunit u; fast = u }) units in
     lp_command_base := Some base;
     Lib.add_leaf (in_lp_command_src base)
   let command_init () =
+    let open Summary in
     match !lp_command_base with
     | None -> CErrors.user_err Pp.(str "Elpi CommandTemplate was not called")
     | Some ast -> ast
@@ -665,22 +692,26 @@ let get ?(fail_if_not_exists=false) p =
   let lp_tactic_ast = Summary.ref ~name:("elpi-lp-tactic") None
   let in_lp_tactic_ast : src list -> Libobject.obj =
     let open Libobject in
+    let open Summary in
     declare_object { (default_object "ELPI-LP-TACTIC") with
       load_function = (fun _ x -> lp_tactic_ast := Some x);
       classify_function = (fun _ -> Keep);
     }
   let load_tactic ~loc s =
+    let open Summary in
     let elpi = ensure_initialized () in
     let units = private__units_from_file ~elpi ~loc ~base:(EC.empty_base ~elpi) s in
     let base = List.map (fun u -> File { fname = name_of_cunit u; fast = u }) units in
     lp_tactic_ast := Some base;
     Lib.add_leaf (in_lp_tactic_ast base)
   let tactic_init () =
+    let open Summary in
     match !lp_tactic_ast with
     | None -> CErrors.user_err Pp.(str "Elpi TacticTemplate was not called")
     | Some ast -> ast
   
   let init_program_units (loc,qualid) ~loc (init : src list) =
+    let open Summary in
     if stage = Summary.Stage.Interp && Global.sections_are_opened () then
       CErrors.user_err Pp.(str "Program/Tactic/Db cannot be declared inside sections")
     else
@@ -719,6 +750,7 @@ let get ?(fail_if_not_exists=false) p =
   let stage = stage
 
   let db_inspect name =
+    let open Summary in
     try Names.KNset.cardinal (SLMap.find name !db_name_src).units
   with Not_found -> -1
     
@@ -733,14 +765,14 @@ let unit_from_plugin ?error_header ~elpi ~base ~loc builtins =
 
 (* Units are marshalable, but programs are not *)
 
-let compiler_cache_code = Summary.ref ~local:true
+let compiler_cache_code = Summary.local_ref
   ~name:("elpi-compiler-cache-code")
   Int.Map.empty
-let compiler_cache_chunk = Summary.ref ~local:true
+let compiler_cache_chunk = Summary.local_ref
   ~name:("elpi-compiler-cache-chunk")
   Int.Map.empty
 
-let programs_tip = Summary.ref ~local:true
+let programs_tip = Summary.local_ref
   ~name:("elpi-compiler-cache-gc")
   SLMap.empty
 
