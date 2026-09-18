@@ -800,14 +800,14 @@ external func coq.env.current-path -> list string.
 external func coq.env.current-section-path -> list string.
 
 % Deprecated, use coq.env.opaque?
-  pred coq.env.const-opaque? i:constant.
+  func coq.env.const-opaque? constant.
   coq.env.const-opaque? C :-
     coq.warning "elpi.deprecated" "elpi.const-opaque" "use coq.env.opaque? in place of coq.env.const-opaque?",
     coq.env.opaque? C.
   
 
 % Deprecated, use coq.env.primitive?
-  pred coq.env.const-primitive? i:constant.
+  func coq.env.const-primitive? constant.
   coq.env.const-primitive? C :-
     coq.warning "elpi.deprecated" "elpi.const-primitive" "use coq.env.primitive? in place of coq.env.const-primitive?",
     coq.env.primitive? C.
@@ -863,7 +863,7 @@ external func coq.env.add-section-variable id, implicit_kind,
                                           term -> constant.
 
 
-pred coq.env.add-context i:context-decl.
+func coq.env.add-context context-decl.
 coq.env.add-context context-end.
 coq.env.add-context (context-item Name I Ty none Rest) :-
   coq.env.add-section-variable Name I Ty C,
@@ -1295,7 +1295,7 @@ external func coq.coercion.db -> list coercion.
 external func coq.coercion.db-for class, class -> list (pair gref int).
 
 % Deprecated, use coq.env.projections
-pred coq.CS.canonical-projections i:inductive, o:list (option constant).
+func coq.CS.canonical-projections inductive -> list (option constant).
 coq.CS.canonical-projections I L :-
   coq.warning "elpi.deprecated" "elpi.canonical-projections" "use coq.env.projections in place of coq.CS.canonical-projections",
   coq.env.projections I L.
@@ -1599,14 +1599,14 @@ external func coq.reduction.native.norm term, term -> term.
 external func coq.reduction.native.available?.
 
 % Deprecated, use coq.reduction.cbv.norm
-pred coq.reduction.cbv.whd_all i:term, o:term.
+func coq.reduction.cbv.whd_all term -> term.
 coq.reduction.cbv.whd_all T R :-
   coq.warning "elpi.deprecated" "elpi.cbv-whd-all" "use coq.reduction.cbv.norm in place of coq.reduction.cbv.whd_all",
   coq.reduction.cbv.norm T R.
 
 
 % Deprecated, use coq.reduction.vm.norm
-pred coq.reduction.vm.whd_all i:term, i:term, o:term.
+func coq.reduction.vm.whd_all term, term -> term.
 coq.reduction.vm.whd_all T TY R :-
   coq.warning "elpi.deprecated" "elpi.vm-whd-all" "use coq.reduction.vm.norm in place of coq.reduction.vm.whd_all",
   coq.reduction.vm.norm T TY R.
@@ -1980,15 +1980,19 @@ kind argument_mode type.
 external symbol in : argument_mode = "1". 
 external symbol out : argument_mode = "1". 
 
-% [coq.elpi.add-predicate Db Indexing PredName Spec] Declares a new
-% predicate PredName in the data base Db.
-% Indexing can be left unspecified. Spec gathers a mode and a
+% [coq.elpi.add-predicate Functional Db Indexing PredName Spec] Declares a
+% new predicate PredName in the data base Db.
+% Functional selects between the pred and func keywords (func requires
+% all inputs to precede all outputs, and falls back to :functional
+% pred
+% otherwise). Indexing can be left unspecified. Spec gathers a mode and
+% a
 % type for each argument. CAVEAT: types and indexing are strings
 % instead of proper data types; beware parsing errors are fatal.
 % Supported attributes:
 % - @local! (default: false, discard at the end of section or module)
 % - @global! (default: false, always active
-external func coq.elpi.add-predicate string, string, string, 
+external func coq.elpi.add-predicate bool, string, string, string, 
                                     list (pair argument_mode string).
 
 % [coq.elpi.predicate? PredName] Tells if a predicate called PredName exists
