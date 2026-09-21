@@ -57,7 +57,8 @@ let
     ConCert.job = false;
 
     ITree.job = false;  # only a dependency of jasmin
-}; in
+};
+in
 {
   format = "1.0.0";
   attribute = "rocq-elpi";
