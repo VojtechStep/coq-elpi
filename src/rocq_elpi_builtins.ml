@@ -1999,6 +1999,12 @@ let declare_scheme_aux local ref k gr =
   declare_scheme local k (ref,for_scheme gr)
 [%%endif]
 
+[%%if coq = "9.0" || coq = "9.1" || coq = "9.2" || coq = "9.3"]
+let ustate_univs_of_ind_entry uctx = UState.Polymorphic_entry uctx
+[%%else]
+let ustate_univs_of_ind_entry uctx = UState.Polymorphic_entry (UVars.AbstractContext.repr uctx)
+[%%endif]
+
 [%%if coq = "9.0" || coq = "9.1"]
 let mis_is_recursive { Declarations.mind_recargs } =
   Rtree.is_infinite Declareops.eq_recarg mind_recargs
@@ -2671,7 +2677,7 @@ Supported attributes:
        | Monomorphic_ind_entry -> (Monomorphic_entry, UState.Monomorphic_entry uctx, univ_binders)
        | Template_ind_entry _ -> nYI "template polymorphic inductives"
        | Polymorphic_ind_entry uctx ->
-          (Polymorphic_entry uctx, UState.Polymorphic_entry uctx, univ_binders)
+          (Polymorphic_entry uctx, ustate_univs_of_ind_entry uctx, univ_binders)
        in
      let () = Global.push_context_set uctx in
      let mind =
