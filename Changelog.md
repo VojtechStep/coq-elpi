@@ -1,4 +1,10 @@
 
+# UNRELEASED
+
+### API:
+- Change `coq.arguments.scope` and `coq.arguments.set-scope`
+  according to https://github.com/rocq-prover/rocq/pull/22545
+
 # [3.5.1] 04/09/2026
 
 Requires Elpi 3.7.1 and Rocq 9.0, 9.1, 9.2 and 9.3.
