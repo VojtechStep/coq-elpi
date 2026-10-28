@@ -1,10 +1,19 @@
-[![CI](https://github.com/LPCIC/coq-elpi/actions/workflows/ci.yml/badge.svg)](https://github.com/LPCIC/coq-elpi/actions/workflows/ci.yml)
-[![Nix 9.1](https://github.com/LPCIC/coq-elpi/actions/workflows/nix-action-rocq-9.1.yml/badge.svg)](https://github.com/LPCIC/coq-elpi/actions/workflows/nix-action-rocq-9.1.yml)
-[![Nix 9.1](https://github.com/LPCIC/coq-elpi/actions/workflows/nix-action-rocq-9.2.yml/badge.svg)](https://github.com/LPCIC/coq-elpi/actions/workflows/nix-action-rocq-9.2.yml)
-[![Nix master](https://github.com/LPCIC/coq-elpi/actions/workflows/nix-action-rocq-master.yml/badge.svg)](https://github.com/LPCIC/coq-elpi/actions/workflows/nix-action-rocq-master.yml)
-[![DOC](https://github.com/LPCIC/coq-elpi/actions/workflows/doc.yml/badge.svg)](https://github.com/LPCIC/coq-elpi/actions/workflows/doc.yml)
-[![project chat](https://img.shields.io/badge/zulip-join_chat-brightgreen.svg)](https://coq.zulipchat.com/#narrow/stream/253928-Elpi-users.20.26.20devs)
-<img align="right" src="https://github.com/LPCIC/coq-elpi/raw/master/etc/rocqy-elpi.png" alt="Rocq-Elpi logo" width="35%" />
+### Rocq-Helpi
+
+This repository hosts a work-in-progress fork of rocq-elpi, a Rocq
+plugin for writing commands and tactics in ELPI by Enrico Tassi et al.
+
+Rocq-helpi is based on the version of rocq-elpi from October 19 2026,
+with contributions identified as authored using LLMs dropped from the
+commit history. Namely support for mutual inductives, primitive
+arrays, cofix, functors, and relevance API were removed.
+
+Rocq-helpi is supposed to work with the
+[helpi](https://codeberg.org/VojtechStep/helpi) fork of elpi. The
+plugin evolves as an independent project; we do not intend to keep up
+with rocq-elpi's newer commits, and we do not aim for feature parity.
+
+What follows is the README of the original rocq-elpi implementation.
 
 ### Rocq-Elpi
 
